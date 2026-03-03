@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.groq.chat import ChatGroq
 	from browser_use.llm.mistral.chat import ChatMistral
 	from browser_use.llm.oci_raw.chat import ChatOCIRaw
+	from browser_use.llm.oracle.chat import ChatOracleCodeAssist
 	from browser_use.llm.ollama.chat import ChatOllama
 	from browser_use.llm.openai.chat import ChatOpenAI
 	from browser_use.llm.openrouter.chat import ChatOpenRouter
@@ -90,6 +91,7 @@ _LAZY_IMPORTS = {
 	'ChatGroq': ('browser_use.llm.groq.chat', 'ChatGroq'),
 	'ChatMistral': ('browser_use.llm.mistral.chat', 'ChatMistral'),
 	'ChatOCIRaw': ('browser_use.llm.oci_raw.chat', 'ChatOCIRaw'),
+	'ChatOracleCodeAssist': ('browser_use.llm.oracle.chat', 'ChatOracleCodeAssist'),
 	'ChatOllama': ('browser_use.llm.ollama.chat', 'ChatOllama'),
 	'ChatOpenAI': ('browser_use.llm.openai.chat', 'ChatOpenAI'),
 	'ChatOpenRouter': ('browser_use.llm.openrouter.chat', 'ChatOpenRouter'),
@@ -154,6 +156,7 @@ __all__ = [
 	'ChatMistral',
 	'ChatAzureOpenAI',
 	'ChatOCIRaw',
+	'ChatOracleCodeAssist',
 	'ChatOllama',
 	'ChatOpenRouter',
 	'ChatVercel',

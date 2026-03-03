@@ -1,3 +1,5 @@
+import json
+import os
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
@@ -9,11 +11,13 @@ from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.shared.chat_model import ChatModel
 from openai.types.shared_params.reasoning_effort import ReasoningEffort
 from openai.types.shared_params.response_format_json_schema import JSONSchema, ResponseFormatJSONSchema
+from openai.types.responses import Response
 from pydantic import BaseModel
 
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
+from browser_use.llm.openai.responses_serializer import ResponsesAPIMessageSerializer
 from browser_use.llm.openai.serializer import OpenAIMessageSerializer
 from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
@@ -75,6 +79,7 @@ class ChatOpenAI(BaseChatModel):
 			'gpt-5-nano',
 		]
 	)
+	use_responses_api: bool | str = 'auto'
 
 	# Static
 	@property
@@ -83,6 +88,19 @@ class ChatOpenAI(BaseChatModel):
 
 	def _get_client_params(self) -> dict[str, Any]:
 		"""Prepare client parameters dictionary."""
+		# Resolve credentials and endpoints from environment variables shared with compatible providers
+		self.api_key = self.api_key or os.getenv('OPENAI_API_KEY') or os.getenv('COMPATIBLE_OPENAI_API_KEY')
+		self.base_url = self.base_url or os.getenv('OPENAI_BASE_URL') or os.getenv('COMPATIBLE_OPENAI_BASE_URL')
+
+		# Allow override of default headers via JSON environment variable for compatibility layers
+		if self.default_headers is None:
+			env_headers = os.getenv('COMPATIBLE_OPENAI_DEFAULT_HEADERS')
+			if env_headers:
+				try:
+					self.default_headers = json.loads(env_headers)
+				except json.JSONDecodeError:
+					pass
+
 		# Define base client params
 		base_params = {
 			'api_key': self.api_key,
@@ -162,6 +180,9 @@ class ChatOpenAI(BaseChatModel):
 		Returns:
 			Either a string response or an instance of output_format
 		"""
+
+		if self._should_use_responses_api():
+			return await self._ainvoke_responses_api(messages, output_format)
 
 		openai_messages = OpenAIMessageSerializer.serialize_messages(messages)
 
@@ -302,5 +323,168 @@ class ChatOpenAI(BaseChatModel):
 		except APIStatusError as e:
 			raise ModelProviderError(message=e.message, status_code=e.status_code, model=self.name) from e
 
+		except Exception as e:
+			raise ModelProviderError(message=str(e), model=self.name) from e
+
+	def _should_use_responses_api(self) -> bool:
+		"""Determine whether to call the Responses API instead of Chat Completions."""
+		if isinstance(self.use_responses_api, bool):
+			return self.use_responses_api
+
+		wire_api = os.getenv('COMPATIBLE_OPENAI_WIRE_API')
+		if wire_api and wire_api.lower().startswith('responses'):
+			return True
+
+		if os.getenv('COMPATIBLE_OPENAI_API_KEY'):
+			return True
+
+		base = str(self.base_url or os.getenv('COMPATIBLE_OPENAI_BASE_URL') or '')
+		if 'litellm' in base or 'responses' in base:
+			return True
+
+		return False
+
+	def _coerce_responses_result(self, response: Any) -> Response:
+		"""Normalize responses API results or raise helpful model provider errors."""
+		if isinstance(response, Response):
+			return response
+
+		# Handle string SSE payloads (e.g., 'data: {...}')
+		if isinstance(response, str):
+			payloads = [
+				line.split('data:', 1)[1].strip()
+				for line in response.splitlines()
+				if line.startswith('data:')
+			]
+			for payload in reversed(payloads):
+				if payload == '[DONE]':
+					continue
+				try:
+					data = json.loads(payload)
+					if isinstance(data, dict):
+						return Response.model_validate(data)
+				except json.JSONDecodeError:
+					continue
+			raise ModelProviderError(message=response, model=self.name)
+
+		# Some proxies may return dict responses instead of SDK objects
+		if isinstance(response, dict):
+			message = response.get('error') or response.get('message') or str(response)
+			raise ModelProviderError(message=message, model=self.name)
+
+		raise ModelProviderError(message=str(response), model=self.name)
+
+	def _get_usage_from_responses(self, response: Response) -> ChatInvokeUsage | None:
+		"""Extract token usage information from a Responses API result."""
+		if response.usage is None:
+			return None
+
+		input_details = getattr(response.usage, 'input_tokens_details', None)
+		cached_tokens = getattr(input_details, 'cached_tokens', None) if input_details else None
+
+		return ChatInvokeUsage(
+			prompt_tokens=response.usage.input_tokens,
+			prompt_cached_tokens=cached_tokens,
+			prompt_cache_creation_tokens=None,
+			prompt_image_tokens=None,
+			completion_tokens=response.usage.output_tokens,
+			total_tokens=response.usage.total_tokens,
+		)
+
+	async def _ainvoke_responses_api(
+		self,
+		messages: list[BaseMessage],
+		output_format: type[T] | None = None,
+	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
+		"""Invoke the model using the Responses API."""
+		input_messages = ResponsesAPIMessageSerializer.serialize_messages(messages)
+
+		params: dict[str, Any] = {
+			'model': self.model,
+			'input': input_messages,
+		}
+
+		if self.temperature is not None:
+			params['temperature'] = self.temperature
+
+		if self.max_completion_tokens is not None:
+			params['max_output_tokens'] = self.max_completion_tokens
+
+		if self.top_p is not None:
+			params['top_p'] = self.top_p
+
+		if self.seed is not None:
+			params['seed'] = self.seed
+
+		if self.service_tier is not None:
+			params['service_tier'] = self.service_tier
+
+		if self.reasoning_models and any(str(m).lower() in str(self.model).lower() for m in self.reasoning_models):
+			params['reasoning'] = {'effort': self.reasoning_effort}
+			params.pop('temperature', None)
+
+		try:
+			if output_format is None or self.dont_force_structured_output:
+				response = await self.get_client().responses.create(**params)
+				response = self._coerce_responses_result(response)
+				usage = self._get_usage_from_responses(response)
+				return ChatInvokeCompletion(
+					completion=response.output_text or '',
+					usage=usage,
+					stop_reason=response.status if response.status else None,
+				)
+
+			json_schema = SchemaOptimizer.create_optimized_json_schema(
+				output_format,
+				remove_min_items=self.remove_min_items_from_schema,
+				remove_defaults=self.remove_defaults_from_schema,
+			)
+
+			# Inject schema in system prompt if requested
+			if self.add_schema_to_system_prompt and input_messages and input_messages[0].get('role') == 'system':
+				schema_text = f'\n<json_schema>\n{json_schema}\n</json_schema>'
+				content = input_messages[0].get('content', '')
+				if isinstance(content, str):
+					input_messages[0]['content'] = content + schema_text
+				elif isinstance(content, list):
+					input_messages[0]['content'] = list(content) + [{'type': 'input_text', 'text': schema_text}]
+				params['input'] = input_messages
+
+			text_format = {
+				'type': 'json_schema',
+				'name': 'agent_output',
+				'strict': True,
+				'schema': json_schema,
+			}
+			if self.dont_force_structured_output:
+				params.pop('text', None)
+			else:
+				params['text'] = {'format': text_format}
+
+			response = await self.get_client().responses.create(**params)
+			response = self._coerce_responses_result(response)
+
+			if not response.output_text:
+				raise ModelProviderError(
+					message='Failed to parse structured output from model response',
+					status_code=500,
+					model=self.name,
+				)
+
+			usage = self._get_usage_from_responses(response)
+			parsed = output_format.model_validate_json(response.output_text)
+
+			return ChatInvokeCompletion(
+				completion=parsed,
+				usage=usage,
+				stop_reason=response.status if response.status else None,
+			)
+
+		except RateLimitError as e:
+			raise ModelRateLimitError(message=e.message, model=self.name) from e
+		except APIConnectionError as e:
+			raise ModelProviderError(message=str(e), model=self.name) from e
+		except APIStatusError as e:
+			raise ModelProviderError(message=e.message, status_code=e.status_code, model=self.name) from e
 		except Exception as e:
 			raise ModelProviderError(message=str(e), model=self.name) from e

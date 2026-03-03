@@ -291,7 +291,7 @@ def _get_provider_for_model(model: str) -> str | None:
 	return None
 
 
-def get_llm(model: str | None = None) -> Any:
+async def get_llm(model: str | None = None) -> Any:
 	"""Get LLM instance from environment configuration.
 
 	Args:
@@ -302,9 +302,13 @@ def get_llm(model: str | None = None) -> Any:
 	Supported providers: OpenAI, Anthropic, Google, Browser-Use.
 	Model names are validated against each SDK's verified model list.
 	"""
-	from browser_use.llm import ChatAnthropic, ChatBrowserUse, ChatGoogle, ChatOpenAI
+	from browser_use.llm import ChatAnthropic, ChatBrowserUse, ChatGoogle, ChatOpenAI, ChatOracleCodeAssist
 
 	if model:
+		# Oracle Code Assist models use the oca/ prefix
+		if model.startswith('oca/'):
+			return ChatOracleCodeAssist(model=model)
+
 		provider = _get_provider_for_model(model)
 
 		if provider == 'openai':
@@ -322,6 +326,9 @@ def get_llm(model: str | None = None) -> Any:
 	# No model specified - auto-detect from available API keys
 	if os.environ.get('BROWSER_USE_API_KEY'):
 		return ChatBrowserUse()
+
+	if os.environ.get('COMPATIBLE_OPENAI_API_KEY'):
+		return ChatOracleCodeAssist()
 
 	if os.environ.get('OPENAI_API_KEY'):
 		return ChatOpenAI(model='o3')

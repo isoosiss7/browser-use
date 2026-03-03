@@ -62,6 +62,7 @@ if TYPE_CHECKING:
 	from browser_use.llm.groq.chat import ChatGroq
 	from browser_use.llm.mistral.chat import ChatMistral
 	from browser_use.llm.oci_raw.chat import ChatOCIRaw
+	from browser_use.llm.oracle.chat import ChatOracleCodeAssist
 	from browser_use.llm.ollama.chat import ChatOllama
 	from browser_use.llm.openai.chat import ChatOpenAI
 	from browser_use.llm.vercel.chat import ChatVercel
@@ -98,6 +99,7 @@ _LAZY_IMPORTS = {
 	'ChatMistral': ('browser_use.llm.mistral.chat', 'ChatMistral'),
 	'ChatAzureOpenAI': ('browser_use.llm.azure.chat', 'ChatAzureOpenAI'),
 	'ChatOCIRaw': ('browser_use.llm.oci_raw.chat', 'ChatOCIRaw'),
+	'ChatOracleCodeAssist': ('browser_use.llm.oracle.chat', 'ChatOracleCodeAssist'),
 	'ChatOllama': ('browser_use.llm.ollama.chat', 'ChatOllama'),
 	'ChatVercel': ('browser_use.llm.vercel.chat', 'ChatVercel'),
 	# LLM models module
@@ -151,6 +153,7 @@ __all__ = [
 	'ChatMistral',
 	'ChatAzureOpenAI',
 	'ChatOCIRaw',
+	'ChatOracleCodeAssist',
 	'ChatOllama',
 	'ChatVercel',
 	'Tools',

@@ -120,6 +120,37 @@ OPENAI_API_KEY=
   into the normal OpenAI API call).
 </Info>
 
+### Oracle Code Assist
+
+```python
+from browser_use import Agent, ChatOracleCodeAssist
+
+# Optional: override defaults via environment before import
+# export COMPATIBLE_OPENAI_BASE_URL="https://code-internal..."
+# export COMPATIBLE_OPENAI_DEFAULT_HEADERS='{"client":"browser-use","client-version":"0"}'
+
+llm = ChatOracleCodeAssist(model="oca/gpt-5-codex")
+
+agent = Agent(
+    task="Your task here",
+    llm=llm,
+)
+```
+
+Required environment variables:
+
+```bash .env
+COMPATIBLE_OPENAI_API_KEY=
+```
+
+Optional overrides:
+
+- `COMPATIBLE_OPENAI_BASE_URL` to point at a different Oracle gateway release
+- `COMPATIBLE_OPENAI_DEFAULT_HEADERS` (JSON) to align with your tenancy requirements
+- `COMPATIBLE_OPENAI_WIRE_API=responses` to force the Responses API when autodetection is not sufficient
+
+If you prefer to keep using `ChatOpenAI`, it now also reads these environment variables so the same credentials work across both entry points.
+
 ### Anthropic [example](https://github.com/browser-use/browser-use/blob/main/examples/models/claude-4-sonnet.py)
 
 ```python

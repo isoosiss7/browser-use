@@ -18,6 +18,18 @@ browser-use doctor
 
 For more information, see https://github.com/browser-use/browser-use/blob/main/browser_use/skill_cli/README.md
 
+### Oracle Code Assist (Oracle internal use)
+
+If you are routing LLM traffic through Oracle Code Assist, set the Oracle-compatible OpenAI variables before launching `browser-use`:
+
+```bash
+export COMPATIBLE_OPENAI_API_KEY="your_oracle_token"
+export COMPATIBLE_OPENAI_BASE_URL="https://code-internal.aiservice.us-chicago-1.oci.oraclecloud.com/20250206/app/litellm"
+export COMPATIBLE_OPENAI_DEFAULT_HEADERS='{"client":"codex-cli","client-version":"0"}'  # optional JSON
+```
+
+`browser-use` will automatically detect this credential, switch `ChatOpenAI` into Responses API mode, and let you run Oracle models with `--llm oca/gpt-5.1-codex` (or other `oca/...` names). Update `COMPATIBLE_OPENAI_BASE_URL` if Oracle publishes a newer `/app/litellm` release in your Codex config.
+
 ## Core Workflow
 
 1. **Navigate**: `browser-use open <url>` - Opens URL (starts browser if needed)
@@ -71,8 +83,11 @@ browser-use wait text "Success"           # Wait for text
 
 # Session
 browser-use sessions                      # List active sessions
-browser-use close                         # Close current session
+browser-use --session checkout close      # Close a specific session (flags precede the command)
 browser-use close --all                   # Close all sessions
+# Tip: standalone workflows are easier to debug if you close the session or pick a unique name per run:
+#       browser-use --session flow-1 open ...
+#       browser-use --session flow-2 open ...
 
 # AI Agent
 browser-use -b remote run "task"          # Run agent in cloud (async by default)
@@ -83,7 +98,7 @@ browser-use task status <id>              # Check cloud task progress
 
 ### Navigation & Tabs
 ```bash
-browser-use open <url>                    # Navigate to URL
+browser-use --session checkout open <url> # Navigate (global flags come before the command)
 browser-use back                          # Go back in history
 browser-use scroll down                   # Scroll down
 browser-use scroll up                     # Scroll up
@@ -269,7 +284,7 @@ browser-use tunnel stop --all       # Stop all tunnels
 ### Session Management
 ```bash
 browser-use sessions                      # List active sessions
-browser-use close                         # Close current session
+browser-use --session checkout close      # Close session "checkout"
 browser-use close --all                   # Close all sessions
 ```
 
